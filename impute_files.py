@@ -21,10 +21,10 @@ import pandas as pd
 import matplotlib.pyplot as plt
 
 # Constant Variables
-MIN_NUM_VALUES = 0
-FOLDER_PATH = 'data_read_all'
+MIN_NUM_VALUES = 200
+FOLDER_PATH = 'data_read'
 PATIENT_FOLDER_PATH = FOLDER_PATH + '/patients'
-NEW_FOLDER_PATH = 'data_imputed_all'
+NEW_FOLDER_PATH = 'data_imputed'
 NEW_PATIENT_FOLDER_PATH = NEW_FOLDER_PATH + '/patients'
 UNEVEN_FOLDER_PATH = NEW_FOLDER_PATH + '/uneven'
 
