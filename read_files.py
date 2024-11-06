@@ -3,12 +3,15 @@
 # 4 November 2024
 # Reads patient files (.xlsx) and converts them to .csv files
 
+import os
 import numpy as np
 import pandas as pd
-import os
 
 # Constant Variables
 MIN_NUM_VALUES = 200
+PATIENT_FOLDER_PATH = 'data_org/SCH_asthma_114'
+NEW_FOLDER_PATH = 'data_read'
+NEW_PATIENT_FOLDER_PATH = NEW_FOLDER_PATH + '/patients'
 
 # 114_medinfo file -> DataFrame
 demographic_df = pd.DataFrame(pd.read_excel('data_org/Demographic.xlsx'))
@@ -21,13 +24,14 @@ demographic_df = demographic_df.drop(['UID1', 'UID2'], axis=1)
 # listed patient id
 patient_ids = list(demographic_df['ID'])
 
+#print(demographic_df.info())
+
 # individual patient files -> DataFrame
-folder_path = 'data_org/SCH_asthma_114'
 patient_dfs = {}
 
-for filename in os.listdir(folder_path):
+for filename in os.listdir(PATIENT_FOLDER_PATH):
     # converting patient file -> Dataframe
-    file_path = folder_path + '/' + filename
+    file_path = PATIENT_FOLDER_PATH + '/' + filename
     patient_df = pd.DataFrame(pd.read_excel(file_path))
 
     patient_id = patient_df.iloc[2, 0] if patient_df.iloc[1, 0][0] == 'A' \
@@ -58,19 +62,20 @@ patients_removed = len(patient_ids) - len(new_patient_ids)
 valid_rows = demographic_df['ID'].isin(new_patient_ids)
 removed_df = demographic_df[~valid_rows]
 
-print('Number of Patients Removed: ', patients_removed)
-print('Number of Patients Found with Removed Ids: ', removed_df.shape[0])
-
 # updating patient id list and demographic DataFrame
 patient_ids = new_patient_ids
 demographic_df = demographic_df[valid_rows]
 
 # storing dataframes -> csv files to data_read folder
-demographic_df.to_csv('data_read/demographic_all.csv')
+demographic_df.to_csv(NEW_FOLDER_PATH + '/demographic_all.csv')
 
 demographic_df_part = demographic_df.drop(['BCODE', 'UID'], axis=1)
-demographic_df_part.to_csv('data_read/demographic.csv')
+demographic_df_part.to_csv(NEW_FOLDER_PATH + '/demographic.csv')
 
 for name, df in patient_dfs.items():
-    new_file_path = 'data_read/patients/' + name
-    df.to_csv(new_file_path)
+    new_file_path = NEW_PATIENT_FOLDER_PATH + '/' + name + '.csv'
+    df.to_csv(new_file_path, index=False)
+
+# Output Summary
+print('Number of Patients Removed: ', patients_removed)
+print('Number of Patients Found with Removed Ids: ', removed_df.shape[0])
