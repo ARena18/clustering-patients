@@ -1,6 +1,6 @@
 # Rena Ahn
-# impute_files.py (Python)
-# 4 November 2024
+# impute_files.py (Python, Anaconda3 Interpreter)
+# 6 November 2024
 # Imputes missing data in patient data
 
 """
@@ -21,12 +21,11 @@ import pandas as pd
 import matplotlib.pyplot as plt
 
 # Constant Variables
-MIN_NUM_VALUES = 200
-FOLDER_PATH = 'data_read'
+MIN_NUM_VALUES = 1
+FOLDER_PATH = 'data_read_all'
 PATIENT_FOLDER_PATH = FOLDER_PATH + '/patients'
-NEW_FOLDER_PATH = 'data_imputed'
+NEW_FOLDER_PATH = 'impute/data_imputed_all'
 NEW_PATIENT_FOLDER_PATH = NEW_FOLDER_PATH + '/patients'
-UNEVEN_FOLDER_PATH = NEW_FOLDER_PATH + '/uneven'
 
 """
 Function to check the size of gaps
@@ -55,6 +54,11 @@ def checkLargeGaps(patient):
                 c = 0
             else:
                 c += 1
+    
+        if c > 14:
+            all_counts[i].append(c)
+            large_gaps[i].append((num_rows-c-1, num_rows-1))
+            large = True
     """
     if not impute:
         print(all_counts)
@@ -68,17 +72,16 @@ def checkLargeGaps(patient):
     return large, large_gaps
 
 """
-Function to choose the largest chunk of data (without a gap of more than 14 days in between)
-Returns true if the large data chunk differs greatly between each column;
-Returns false otherwise
-Additionally returns the dataframe with (only) the largest chunk of data
+Function to choose and impute the largest chunk of data (without a gap of more
+than 14 days in between)
 Pre : patient is a pandas DataFrame object,
-      gaps is a dictionary containing tuples of the start and end indices of each large gap
+      gaps is a dictionary containing tupes of the start and end indices of each large gap
 """
 def imputeLargestChunk(patient, gaps):
-    all_start = 0
-    all_end = patient.shape[0]
+    col_names = list(patient.columns)
+    join_dfs = []
 
+    # iterate through each pefr data column
     for i in range(1, patient.shape[1]):
         max = 0   #size of largest chunk
         max_start = 0   #start index of gap after largest chunk
@@ -86,6 +89,7 @@ def imputeLargestChunk(patient, gaps):
           # start (after) and end (before) index of largest gap
         prev_end = 0   #end index of gap before current chunk
 
+        # find largest chunk of current column
         for start, end in gaps[i]:
             size = start - prev_end
             if size > max:
@@ -94,20 +98,34 @@ def imputeLargestChunk(patient, gaps):
                 max_end = prev_end
             prev_end = end
 
-        #print(max_end, max_start)
-        if all_start < max_start:
-            all_start = max_start
-        if all_end > max_end:
-            all_end = max_end
+        if len(gaps[i]) == 0:   #when there are no large gaps
+            max = len(patient[col_names[i]]) - patient[col_names[i]].isna().sum()
+            max_start = max
+            max_end = 0
+
+        if max > MIN_NUM_VALUES: #checks size of chunk
+            # make dataframe of the chunk
+            join_df = pd.DataFrame()
+            #print(max_end, " ", max_start)
+            join_df[col_names[0]] = patient[col_names[0]].iloc[max_end:max_start]
+            join_df[col_names[i]] = patient[col_names[i]].iloc[max_end:max_start].interpolate(method='linear').ffill().bfill()
+            join_dfs.append(join_df)
     
-    if all_start - all_end < MIN_NUM_VALUES:
-        return False, None
+    if len(join_dfs) == 0:   #checks there is data
+        return None
+    
+    # outer join all dataframes of individual chunks
+    df_joined = join_dfs[0]
+    
+    #print(len(join_dfs))
+    for i in range(1, len(join_dfs)):
+        df_joined = pd.merge(df_joined, join_dfs[i], on=col_names[0], how='outer')
 
-    #print(all_end, all_start)
-    patient = patient.iloc[all_end:all_start]
+    check, nouse = checkLargeGaps(df_joined)
+    if not check:
+        df_joined.ffill().bfill()
 
-    uneven, nouse = checkLargeGaps(patient)
-    return uneven, patient
+    return df_joined
 
 """
 Function to interpolate linearly
@@ -127,7 +145,6 @@ def imputeLinear(patient):
 
 ### Main Code ###
 patient_dfs = {}
-uneven_dfs = {}
 small_gap_dfs = []
 large_gap_dfs = []
 num_files = 0
@@ -137,33 +154,28 @@ for filename in os.listdir(PATIENT_FOLDER_PATH):
     num_files += 1
     file_path = PATIENT_FOLDER_PATH + '/' + filename
     patient_df = pd.read_csv(file_path, na_values=['', '-'])
-    #patient_dfs[filename] = patient_df
 
     name = filename.strip('.csv')
     check, gaps_dict = checkLargeGaps(patient_df)
     if check:   #for files with large gaps
         large_gap_dfs.append(name)
-        check, patient_df = imputeLargestChunk(patient_df, gaps_dict)
+        patient_df = imputeLargestChunk(patient_df, gaps_dict)
+        #print(name)
+        #print()
+
+        if patient_df is not None:   #for files with enough information
+            patient_dfs[name] = patient_df
     else:
         small_gap_dfs.append(name)
-    
-    if patient_df is not None:   #for files with enough information
-        if check:   #missing chunks occur at different ranges => imputation of gaps more than 14 days
-            uneven_dfs[name] = imputeLinear(patient_df)
-        else:
-            patient_dfs[name] = imputeLinear(patient_df)
+        patient_dfs[name] = imputeLinear(patient_df)
 
 # Storing DataFrames -> .csv files
 for name, df in patient_dfs.items():
     new_file_path = NEW_PATIENT_FOLDER_PATH + '/' + name + '.csv'
     df.to_csv(new_file_path, index=False)
 
-for name, df in uneven_dfs.items():
-    new_file_path = UNEVEN_FOLDER_PATH + '/' + name + '.csv'
-    df.to_csv(new_file_path, index=False)
-
 # Processing demographic files -> DataFrames
-new_patient_ids = list(patient_dfs.keys()) + list(uneven_dfs.keys())
+new_patient_ids = list(patient_dfs.keys())
 
 demographic_df = pd.read_csv(FOLDER_PATH + '/demographic_all.csv')
 initial_demographic_num = demographic_df.shape[0]
@@ -172,9 +184,9 @@ valid_rows = demographic_df['ID'].isin(new_patient_ids)
 demographic_df = demographic_df[valid_rows]
 new_demographic_num = demographic_df.shape[0]
 
-demographic_df.to_csv(NEW_FOLDER_PATH + '/demographic_all.csv')
+demographic_df.to_csv(NEW_FOLDER_PATH + '/demographic_all.csv', index=False)
 demographic_df_part = demographic_df.drop(['BCODE', 'UID'], axis=1)
-demographic_df_part.to_csv(NEW_FOLDER_PATH + '/demographic.csv')
+demographic_df_part.to_csv(NEW_FOLDER_PATH + '/demographic.csv', index=False)
 
 # Output Summary
 print('Initial Number of Files: ', num_files)
@@ -182,8 +194,7 @@ print('Large Chunk Files: ', len(large_gap_dfs))
 print('Small Chunk Files: ', len(small_gap_dfs))
 print('Number of Files Removed: ', initial_demographic_num - new_demographic_num)
 print()
-print('Total Number of Files Imputed: ', len(patient_dfs) + len(uneven_dfs))
-print('Uneven Chunk Files: ', len(uneven_dfs))
+print('Total Number of Files Imputed: ', len(patient_dfs))
 
 
 """

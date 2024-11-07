@@ -1,6 +1,6 @@
 # Rena Ahn
-# read_files.py (Python)
-# 4 November 2024
+# read_files.py (Python, Anaconda3 Interpreter)
+# 6 November 2024
 # Reads patient files (.xlsx) and converts them to .csv files
 
 import os
@@ -8,9 +8,9 @@ import numpy as np
 import pandas as pd
 
 # Constant Variables
-MIN_NUM_VALUES = 200
+MIN_NUM_VALUES = 1
 PATIENT_FOLDER_PATH = 'data_org/SCH_asthma_114'
-NEW_FOLDER_PATH = 'data_read'
+NEW_FOLDER_PATH = 'data_read_all'
 NEW_PATIENT_FOLDER_PATH = NEW_FOLDER_PATH + '/patients'
 
 # 114_medinfo file -> DataFrame
@@ -42,15 +42,22 @@ for filename in os.listdir(PATIENT_FOLDER_PATH):
         new_df['date'] = patient_df.iloc[2:, 1]
 
         # add columns if missing values are less than the minimum threshold
-        num_values = patient_df.shape[0]
-        min_threshold = num_values - MIN_NUM_VALUES
-           #guarantees at least 200 values are provided
-        if patient_df.iloc[2:, 6].isna().sum() < min_threshold:
-            new_df['pefr_am'] = patient_df.iloc[2:, 6]
-        if patient_df.iloc[2:, 7].isna().sum() < min_threshold:
-            new_df['pefr_pm'] = patient_df.iloc[2:, 7]
-        if patient_df.iloc[2:, 8].isna().sum() < min_threshold:
-            new_df['pefr_other'] = patient_df.iloc[2:, 8]
+        num_values = patient_df.shape[0] - 2
+        
+        if patient_id == 'SB-102':     #data for file SB-102 located in different columns
+            if num_values - patient_df.iloc[2:, 9].isna().sum() > MIN_NUM_VALUES:
+                new_df['pefr_am'] = patient_df.iloc[2:, 9]
+            if num_values - patient_df.iloc[2:, 10].isna().sum() > MIN_NUM_VALUES:
+                new_df['pefr_pm'] = patient_df.iloc[2:, 10]
+            if num_values - patient_df.iloc[2:, 11].isna().sum() > MIN_NUM_VALUES:
+                new_df['pefr_other'] = patient_df.iloc[2:, 11]
+        else:
+            if num_values - patient_df.iloc[2:, 6].isna().sum() > MIN_NUM_VALUES:
+                new_df['pefr_am'] = patient_df.iloc[2:, 6]
+            if num_values - patient_df.iloc[2:, 7].isna().sum() > MIN_NUM_VALUES:
+                new_df['pefr_pm'] = patient_df.iloc[2:, 7]
+            if num_values - patient_df.iloc[2:, 8].isna().sum() > MIN_NUM_VALUES:
+                new_df['pefr_other'] = patient_df.iloc[2:, 8]
 
         if new_df.shape[1] > 1:   #ensures there is PEFR data
             patient_dfs[patient_id] = new_df
@@ -67,10 +74,10 @@ patient_ids = new_patient_ids
 demographic_df = demographic_df[valid_rows]
 
 # storing dataframes -> csv files to data_read folder
-demographic_df.to_csv(NEW_FOLDER_PATH + '/demographic_all.csv')
+demographic_df.to_csv(NEW_FOLDER_PATH + '/demographic_all.csv', index=False)
 
 demographic_df_part = demographic_df.drop(['BCODE', 'UID'], axis=1)
-demographic_df_part.to_csv(NEW_FOLDER_PATH + '/demographic.csv')
+demographic_df_part.to_csv(NEW_FOLDER_PATH + '/demographic.csv', index=False)
 
 for name, df in patient_dfs.items():
     new_file_path = NEW_PATIENT_FOLDER_PATH + '/' + name + '.csv'
