@@ -27,49 +27,47 @@ PATIENT_FOLDER_PATH = FOLDER_PATH + '/patients'
 NEW_FOLDER_PATH = 'impute/data_imputed_all'
 NEW_PATIENT_FOLDER_PATH = NEW_FOLDER_PATH + '/patients'
 
+
 """
-Function to check the size of gaps
+Function to check the size of gaps and chunks of data
 Returns true if the patient dataframe has a gap of more than 14 missing data
 values in a row
 Otherwise, returns false
-Additionally returns the dictionary containing the indices of the large gaps
-Pre : patient is a pandas DataFrame object
+Additionally, returns the dictionary containing the indices of the large chunks
 """
-def checkLargeGaps(patient):
+def checkLarge(patient):
     num_rows, num_cols = patient.shape
     all_counts = {}
-    large_gaps = {}
+    large_chunks = {}
     large = False
 
+    # finding gaps of each column
     for i in range(1, num_cols):
         all_counts[i] = []
         c = 0
-        large_gaps[i] = []
+        m = 0
+        large_chunks[i] = []
         for j in range(num_rows):
             if patient.iloc[j, i] > 0:   #checks data is not missing
-                if c > 14:
-                    all_counts[i].append(c)               
-                    large_gaps[i].append((j - c, j))
-                    large = True
-                c = 0
+                c += 1 + m
+                m = 0
             else:
-                c += 1
-    
-        if c > 14:
+                m += 1
+
+                if m > 14:
+                    large = True
+                    m = 0
+                    if c > 0:
+                        all_counts[i].append(c)
+                        large_chunks[i].append(((j+1) - c - m, (j+1) - m + 1))
+                    c = 0
+
+        # adds data for chunks that continue to tne end of the column    
+        if c > 0:
             all_counts[i].append(c)
-            large_gaps[i].append((num_rows-c-1, num_rows-1))
-            large = True
-    """
-    if not impute:
-        print(all_counts)
-        print(large_gaps)
-        print()
-    
-    if impute:
-        print(all_counts)
-        print(large_gaps)
-    """
-    return large, large_gaps
+            large_chunks[i].append((num_rows-c, num_rows))
+
+    return large, large_chunks
 
 """
 Function to choose and impute the largest chunk of data (without a gap of more
@@ -77,39 +75,32 @@ than 14 days in between)
 Pre : patient is a pandas DataFrame object,
       gaps is a dictionary containing tupes of the start and end indices of each large gap
 """
-def imputeLargestChunk(patient, gaps):
+def imputeLargestChunk(patient, chunks):
     col_names = list(patient.columns)
     join_dfs = []
 
     # iterate through each pefr data column
     for i in range(1, patient.shape[1]):
-        max = 0   #size of largest chunk
-        max_start = 0   #start index of gap after largest chunk
-        max_end = 0   #end index of gap before largest chunk
-          # start (after) and end (before) index of largest gap
-        prev_end = 0   #end index of gap before current chunk
+        max = 0   #size of largest data chunk
+        max_start = 0   #start index of largest data chunk
+        max_end = 0   #end index of largest data chunk
 
         # find largest chunk of current column
-        for start, end in gaps[i]:
-            size = start - prev_end
+        for start, end in chunks[i]:
+            size = end - start
             if size > max:
                 max = size
                 max_start = start
-                max_end = prev_end
-            prev_end = end
-
-        if len(gaps[i]) == 0:   #when there are no large gaps
-            max = len(patient[col_names[i]]) - patient[col_names[i]].isna().sum()
-            max_start = max
-            max_end = 0
+                max_end = end
 
         if max > MIN_NUM_VALUES: #checks size of chunk
             # make dataframe of the chunk
             join_df = pd.DataFrame()
-            #print(max_end, " ", max_start)
-            join_df[col_names[0]] = patient[col_names[0]].iloc[max_end:max_start]
-            join_df[col_names[i]] = patient[col_names[i]].iloc[max_end:max_start].interpolate(method='linear').ffill().bfill()
+            join_df[col_names[0]] = patient[col_names[0]].iloc[max_start:max_end]
+            join_df[col_names[i]] = patient[col_names[i]].iloc[max_start:max_end].interpolate(method='linear').ffill().bfill()
             join_dfs.append(join_df)
+            print(chunks[i])
+            print(col_names[i], ': ', max_start, '   ', max_end)
     
     if len(join_dfs) == 0:   #checks there is data
         return None
@@ -121,11 +112,12 @@ def imputeLargestChunk(patient, gaps):
     for i in range(1, len(join_dfs)):
         df_joined = pd.merge(df_joined, join_dfs[i], on=col_names[0], how='outer')
 
-    check, nouse = checkLargeGaps(df_joined)
+    check, nouse = checkLarge(df_joined)
     if not check:
         df_joined.ffill().bfill()
 
     return df_joined
+
 
 """
 Function to interpolate linearly
@@ -152,16 +144,28 @@ num_files = 0
 # Processing patient files -> DataFrames
 for filename in os.listdir(PATIENT_FOLDER_PATH):
     num_files += 1
+    name = filename.strip('.csv')
     file_path = PATIENT_FOLDER_PATH + '/' + filename
     patient_df = pd.read_csv(file_path, na_values=['', '-'])
-
-    name = filename.strip('.csv')
-    check, gaps_dict = checkLargeGaps(patient_df)
-    if check:   #for files with large gaps
+    
+    # finding erroneous data points
+    errors = ['', '-']   #list of missing and erroneous data points
+    for col in patient_df.columns:
+        if col != 'date':
+            values = np.array(patient_df[patient_df[col] > 1000][col])   #erroneous if > 1000
+            for num in values:
+                errors.append(num)
+    
+    # rereading from file with new values to filter out
+    patient_df = pd.read_csv(file_path, na_values=errors)
+    
+    # checking for files with large gaps
+    check, chunks_dict = checkLarge(patient_df)
+    if check:   #if large gaps
         large_gap_dfs.append(name)
-        patient_df = imputeLargestChunk(patient_df, gaps_dict)
-        #print(name)
-        #print()
+        print(name)
+        patient_df = imputeLargestChunk(patient_df, chunks_dict)
+        print()
 
         if patient_df is not None:   #for files with enough information
             patient_dfs[name] = patient_df
